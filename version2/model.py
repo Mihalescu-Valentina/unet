@@ -56,7 +56,8 @@ class UNET(nn.Module):
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
         self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
         self.scaler = torch.cuda.amp.GradScaler()
-        self.metrics = {'phase':'','loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
+        self.metrics = {'train': {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []},
+                        'val': {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}}
         self.load_data()
 
     def forward(self, x):
@@ -215,18 +216,10 @@ class UNET(nn.Module):
     def log_metrics(self, phase='train'):
         loss, acc, mIoU, fIoU = self.loss.compute(), self.acc.compute(), self.mIoU.compute(), self.fIoU.compute()
         print(f"{phase} - Loss: {loss:.4f}, Accuracy: {acc:.4f}, mIoU: {mIoU:.4f}, fIoU: {fIoU:.4f}")
-        if phase == 'train':
-            self.metrics['phase'].append(loss)
-            self.train_metrics['acc'].append(acc)
-            self.train_metrics['mIoU'].append(mIoU)
-            self.train_metrics['fIoU'].append(fIoU)
-        else:
-            self.val_metrics['loss'].append(loss)
-            self.val_metrics['acc'].append(acc)
-            self.val_metrics['mIoU'].append(mIoU)
-            self.val_metrics['fIoU'].append(fIoU)
-
-        loss, acc, mIoU, fIoU = self.loss.compute(), self.acc.compute(), self.mIoU.compute(), self.fIoU.compute()
+        self.metrics[phase]['loss'].append(loss)
+        self.metrics[phase]['acc'].append(acc)
+        self.metrics[phase]['mIoU'].append(mIoU)
+        self.metrics[phase]['fIoU'].append(fIoU)
         #plot metrics
         self.loss.reset()
         self.acc.reset()
