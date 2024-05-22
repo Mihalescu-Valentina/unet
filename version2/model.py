@@ -179,10 +179,8 @@ class UNET(nn.Module):
             data = data.to(device=self.config['device'])
             targets = targets.float().unsqueeze(1).to(device=self.config['device'])
             self.optimizer.zero_grad()
-            with torch.cuda.amp.autocast():
-                predictions = self.forward(data))
-                loss = self.loss_fn(predictions, targets)
-
+            predictions = self.forward(data)
+            loss = self.loss_fn(predictions, targets)
             # backward
             # self.scaler.scale(loss).backward()
             # self.scaler.step(self.optimizer)
