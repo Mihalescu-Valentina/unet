@@ -55,7 +55,7 @@ class UNET(nn.Module):
         self.bottleneck = DoubleConv(features[-1], features[-1]*2)
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
         self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
-        self.scaler = torch.cuda.amp.GradScaler()
+        # self.scaler = torch.cuda.amp.GradScaler()
         self.metrics = {'train': {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []},
                         'val': {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}}
         self.load_data()
@@ -184,13 +184,15 @@ class UNET(nn.Module):
                 loss = self.loss_fn(predictions, targets)
 
             # backward
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
+            # self.scaler.scale(loss).backward()
+            # self.scaler.step(self.optimizer)
+            loss.backward()
+            self.optimizer.step()
             self.loss.update(loss.item())
             self.acc.update(predictions, targets)
             self.mIoU.update(predictions, targets)
             self.fIoU.update(predictions, targets)
-            self.scaler.update()
+            # self.scaler.update()
             self.log_metrics('train')
             # update tqdm loop
             loop.set_postfix(loss=loss.item())
