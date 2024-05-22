@@ -38,10 +38,6 @@ class UNET(nn.Module):
         self.config=nn.ParameterDict(config)
         self.to(self.config['device'])
         self.loss_fn = nn.BCEWithLogitsLoss()
-        self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
-        self.scaler = torch.cuda.amp.GradScaler()
-        self.train_metrics = {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
-        self.val_metrics = {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
         # Down part of UNET
         for feature in features:
             self.downs.append(DoubleConv(in_channels, feature))
@@ -58,6 +54,10 @@ class UNET(nn.Module):
 
         self.bottleneck = DoubleConv(features[-1], features[-1]*2)
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
+        self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
+        self.scaler = torch.cuda.amp.GradScaler()
+        self.train_metrics = {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
+        self.val_metrics = {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
         self.load_data()
 
     def forward(self, x):
