@@ -16,7 +16,7 @@ class LossMetric(Metric):
         return (self.loss / self.batches).item()
 
 class MeanPixelAccuracy(Metric):
-    def __init__(self, num_classes=3):
+    def __init__(self, num_classes=2):
         super().__init__()
         self.add_state("pixel_accuracy", default=torch.tensor(0.), dist_reduce_fx="sum")
         self.add_state("total_pixels", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -37,7 +37,7 @@ class MeanPixelAccuracy(Metric):
 
 
 class MeanIoU(Metric):
-    def __init__(self, num_classes=3):
+    def __init__(self, num_classes=2):
         super().__init__()
         self.add_state("IoU", default=torch.tensor(0, dtype=torch.float32), dist_reduce_fx="mean")
         self.add_state("samples", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -75,7 +75,7 @@ class MeanIoU(Metric):
 
 
 class FrequencyIoU(Metric):
-    def __init__(self, num_classes=3):
+    def __init__(self, num_classes=2):
         super().__init__()
         self.add_state("IoU", default=torch.tensor(0, dtype=torch.float32), dist_reduce_fx="mean")
         self.add_state("samples", default=torch.tensor(0), dist_reduce_fx="sum")
