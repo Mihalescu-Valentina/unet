@@ -83,8 +83,9 @@ class UNET(nn.Module):
 
         return self.final_conv(x)
 
-    def save_checkpoint(state, filename="my_checkpoint.pth.tar"):
+    def save_checkpoint(self,state, filename):
         print("=> Saving checkpoint")
+        print(type(filename))
         torch.save(state, filename)
 
     def load_checkpoint(self,checkpoint):
@@ -177,9 +178,9 @@ class UNET(nn.Module):
         for batch_idx, (data, targets) in enumerate(loop):
             data = data.to(device=self.config['device'])
             targets = targets.float().unsqueeze(1).to(device=self.config['device'])
-            # forward
+           # forward
             with torch.cuda.amp.autocast():
-                predictions = self.forward(data)
+                predictions = self.forward(data))
                 loss = self.loss_fn(predictions, targets)
 
             # backward
@@ -209,9 +210,9 @@ class UNET(nn.Module):
                 self.mIoU.update(preds, y)
                 self.fIoU.update(preds, y)
                 self.log_metrics('val')
-                if idx % 10 == 0:  # Save every 10th batch
-                        torchvision.utils.save_image(preds, f"pred_images/pred_{idx}.png")
-                        torchvision.utils.save_image(y.unsqueeze(1), f"saved_images/image_{idx}.png")
+                if idx % 100 == 0:  # Save every 10th batch
+                        torchvision.utils.save_image(preds, f"/home/valentina/pred_images/pred_{idx}.png")
+                        torchvision.utils.save_image(y, f"/home/valentina/saved_images/image_{idx}.png")
 
     def log_metrics(self, phase='train'):
         loss, acc, mIoU, fIoU = self.loss.compute(), self.acc.compute(), self.mIoU.compute(), self.fIoU.compute()
@@ -239,7 +240,7 @@ class UNET(nn.Module):
             "state_dict": self.state_dict(),
             "optimizer":self.optimizer.state_dict(),
             }
-            self.save_checkpoint(checkpoint)
+            self.save_checkpoint(checkpoint,"/home/valentina/my_checkpoint.pth.tar")
             self.validate_step()
 
 def main():
