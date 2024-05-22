@@ -56,8 +56,7 @@ class UNET(nn.Module):
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
         self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
         self.scaler = torch.cuda.amp.GradScaler()
-        self.train_metrics = {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
-        self.val_metrics = {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
+        self.metrics = {'phase':'','loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}
         self.load_data()
 
     def forward(self, x):
@@ -91,7 +90,7 @@ class UNET(nn.Module):
         print("=> Loading checkpoint")
         self.load_state_dict(checkpoint["state_dict"])
 
-    def get_loaders(
+    def get_loaders(self,
         train_dir,
         train_maskdir,
         val_dir,
@@ -172,7 +171,7 @@ class UNET(nn.Module):
             raise ValueError('Optimizer not supported')
 
     def train_step(self):
-        super.train()
+        self.train()
         loop = tqdm(self.train_loader)
         for batch_idx, (data, targets) in enumerate(loop):
             data = data.to(device=self.config['device'])
@@ -196,7 +195,7 @@ class UNET(nn.Module):
             loop.set_postfix(loss=loss.item())
 
     def validate_step(self):
-        super.eval()
+        self.eval()
         for idx, (x, y) in enumerate(self.val_loader):
             x = x.to(device=self.config['device'])
             y = y.float().unsqueeze(1).to(device=self.config['device'])
@@ -217,7 +216,7 @@ class UNET(nn.Module):
         loss, acc, mIoU, fIoU = self.loss.compute(), self.acc.compute(), self.mIoU.compute(), self.fIoU.compute()
         print(f"{phase} - Loss: {loss:.4f}, Accuracy: {acc:.4f}, mIoU: {mIoU:.4f}, fIoU: {fIoU:.4f}")
         if phase == 'train':
-            self.train_metrics['loss'].append(loss)
+            self.metrics['phase'].append(loss)
             self.train_metrics['acc'].append(acc)
             self.train_metrics['mIoU'].append(mIoU)
             self.train_metrics['fIoU'].append(fIoU)
