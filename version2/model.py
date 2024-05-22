@@ -32,7 +32,6 @@ class UNET(nn.Module):
         self.downs = nn.ModuleList()
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.loss = LossMetric()
-        self.acc = MeanPixelAccuracy()
         self.mIoU = MeanIoU()
         self.fIoU = FrequencyIoU()
         self.config=nn.ParameterDict(config)
@@ -56,8 +55,8 @@ class UNET(nn.Module):
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
         self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
         # self.scaler = torch.cuda.amp.GradScaler()
-        self.metrics = {'train': {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []},
-                        'val': {'loss': [], 'acc': [], 'mIoU': [], 'fIoU': []}}
+        self.metrics = {'train': {'loss': [], 'mIoU': [], 'fIoU': []},
+                        'val': {'loss': [], 'mIoU': [], 'fIoU': []}}
         self.load_data()
 
     def forward(self, x):
@@ -188,11 +187,9 @@ class UNET(nn.Module):
             loss.backward()
             self.optimizer.step()
             self.loss.update(loss.item())
-            self.acc.update(predictions, targets)
             self.mIoU.update(predictions, targets)
             self.fIoU.update(predictions, targets)
             # self.scaler.update()
-            self.log_metrics('train')
             # update tqdm loop
             loop.set_postfix(loss=loss.item())
 
@@ -206,24 +203,20 @@ class UNET(nn.Module):
                 preds = (preds > 0.5).float()
                 loss = self.loss_fn(preds, y)
                 self.loss.update(loss.item())
-                self.acc.update(preds, y)
                 self.mIoU.update(preds, y)
                 self.fIoU.update(preds, y)
-                self.log_metrics('val')
-                if idx % 100 == 0:  # Save every 10th batch
+                if idx % 10 == 0:  # Save every 10th batch
                         torchvision.utils.save_image(preds, f"/home/valentina/pred_images/pred_{idx}.png")
                         torchvision.utils.save_image(y, f"/home/valentina/saved_images/image_{idx}.png")
 
     def log_metrics(self, phase='train'):
-        loss, acc, mIoU, fIoU = self.loss.compute(), self.acc.compute(), self.mIoU.compute(), self.fIoU.compute()
-        print(f"{phase} - Loss: {loss:.4f}, Accuracy: {acc:.4f}, mIoU: {mIoU:.4f}, fIoU: {fIoU:.4f}")
+        loss, mIoU, fIoU = self.loss.compute(), self.mIoU.compute(), self.fIoU.compute()
+        print(f"{phase} - Loss: {loss:.4f}, mIoU: {mIoU:.4f}, fIoU: {fIoU:.4f}")
         self.metrics[phase]['loss'].append(loss)
-        self.metrics[phase]['acc'].append(acc)
         self.metrics[phase]['mIoU'].append(mIoU)
         self.metrics[phase]['fIoU'].append(fIoU)
         #plot metrics
         self.loss.reset()
-        self.acc.reset()
         self.mIoU.reset()
         self.fIoU.reset()
 
@@ -240,15 +233,17 @@ class UNET(nn.Module):
             "state_dict": self.state_dict(),
             "optimizer":self.optimizer.state_dict(),
             }
+            self.log_metrics('train')
             self.save_checkpoint(checkpoint,"/home/valentina/my_checkpoint.pth.tar")
             self.validate_step()
+            self.log_metrics('val')
 
 def main():
     config = {
-        "lr":1e-3,
+        "lr":1e-4,
         "device":"cuda" if torch.cuda.is_available() else "cpu",
         "batch_size":16,
-        "num_epochs":1,
+        "num_epochs":32,
         "num_workers":2,
         "image_height":572,
         "image_width":572,
