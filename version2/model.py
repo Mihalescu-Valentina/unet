@@ -179,8 +179,9 @@ class UNET(nn.Module):
             data = data.to(device=self.config['device'])
             targets = targets.float().unsqueeze(1).to(device=self.config['device'])
             self.optimizer.zero_grad()
-            predictions = self.forward(data)
-            loss = self.loss_fn(predictions, targets)
+            with torch.cuda.amp.autocast():
+                predictions = self.forward(data))
+                loss = self.loss_fn(predictions, targets)
             # backward
             # self.scaler.scale(loss).backward()
             # self.scaler.step(self.optimizer)
@@ -244,7 +245,7 @@ class UNET(nn.Module):
 
 def main():
     config = {
-        "lr":1e-4,
+        "lr":1e-3,
         "device":"cuda" if torch.cuda.is_available() else "cpu",
         "batch_size":16,
         "num_epochs":1,
