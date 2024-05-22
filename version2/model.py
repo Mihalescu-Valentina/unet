@@ -178,13 +178,12 @@ class UNET(nn.Module):
         for batch_idx, (data, targets) in enumerate(loop):
             data = data.to(device=self.config['device'])
             targets = targets.float().unsqueeze(1).to(device=self.config['device'])
-           # forward
+            self.optimizer.zero_grad()
             with torch.cuda.amp.autocast():
                 predictions = self.forward(data))
                 loss = self.loss_fn(predictions, targets)
 
             # backward
-            self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.loss.update(loss.item())
