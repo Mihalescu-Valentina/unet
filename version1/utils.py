@@ -83,7 +83,7 @@ def check_accuracy(loader, model, loss_fn, device="cuda"):
     
     model.train()
     
-    return avg_loss, accuracy, avg_dice, avg_iou
+    return avg_loss, avg_dice, avg_iou
 
 def save_predictions_as_imgs(
     loader, model, folder="saved_images/", device="cuda"
