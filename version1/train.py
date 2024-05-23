@@ -5,6 +5,7 @@ from tqdm import tqdm
 import torch.nn as nn
 import torch.optim as optim
 from model import UNET
+import matplotlib.pyplot as plt
 from utils import (
     load_checkpoint,
     save_checkpoint,
@@ -87,27 +88,73 @@ def main():
     if LOAD_MODEL:
         load_checkpoint(torch.load("/home/valentina/my_checkpoint.pth.tar"), model)
 
-
-    check_accuracy(val_loader, model, device=DEVICE)
     scaler = torch.cuda.amp.GradScaler()
+
+    # Initialize lists to store metrics
+    train_losses = []
+    val_losses = []
+    val_accuracies = []
+    val_dice_scores = []
+    val_iou_scores = []
 
     for epoch in range(NUM_EPOCHS):
         train_fn(train_loader, model, optimizer, loss_fn, scaler)
 
-        # save model
+        # Save model
         checkpoint = {
             "state_dict": model.state_dict(),
-            "optimizer":optimizer.state_dict(),
+            "optimizer": optimizer.state_dict(),
         }
         save_checkpoint(checkpoint)
 
-        # check accuracy
-        check_accuracy(val_loader, model, device=DEVICE)
+        # Check accuracy and get metrics
+        val_loss, val_acc, val_dice, val_iou = check_accuracy(val_loader, model, loss_fn, device=DEVICE)
+        
+        # Append metrics to lists
+        val_losses.append(val_loss)
+        val_accuracies.append(val_acc)
+        val_dice_scores.append(val_dice)
+        val_iou_scores.append(val_iou)
 
-        # print some examples to a folder
+        # Print some examples to a folder
         save_predictions_as_imgs(
             val_loader, model, folder="/home/valentina/saved_images", device=DEVICE
         )
+
+    # Plot metrics
+    epochs = range(1, NUM_EPOCHS + 1)
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(epochs, val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Validation Loss over Epochs')
+    plt.legend()
+    plt.savefig('/home/valentina/validation_loss.png')
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(epochs, val_accuracies, label='Validation Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.title('Validation Accuracy over Epochs')
+    plt.legend()
+    plt.savefig('/home/valentina/validation_accuracy.png')
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(epochs, val_dice_scores, label='Validation Dice Score')
+    plt.xlabel('Epochs')
+    plt.ylabel('Dice Score')
+    plt.title('Validation Dice Score over Epochs')
+    plt.legend()
+    plt.savefig('/home/valentina/validation_dice_score.png')
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(epochs, val_iou_scores, label='Validation IoU Score')
+    plt.xlabel('Epochs')
+    plt.ylabel('IoU Score')
+    plt.title('Validation IoU Score over Epochs')
+    plt.legend()
+    plt.savefig('/home/valentina/validation_iou_score.png')
 
 
 if __name__ == "__main__":
