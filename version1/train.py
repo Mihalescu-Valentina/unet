@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from model import UNET
 import matplotlib.pyplot as plt
-from utils import (
+from utils2 import (
     load_checkpoint,
     save_checkpoint,
     get_loaders,
@@ -93,7 +93,6 @@ def main():
     # Initialize lists to store metrics
     train_losses = []
     val_losses = []
-    val_accuracies = []
     val_dice_scores = []
     val_iou_scores = []
 
@@ -108,11 +107,10 @@ def main():
         save_checkpoint(checkpoint)
 
         # Check accuracy and get metrics
-        val_loss, val_acc, val_dice, val_iou = check_accuracy(val_loader, model, loss_fn, device=DEVICE)
-        
+        val_loss, val_dice, val_iou = check_accuracy(val_loader, model, loss_fn, device=DEVICE)
+
         # Append metrics to lists
         val_losses.append(val_loss)
-        val_accuracies.append(val_acc)
         val_dice_scores.append(val_dice)
         val_iou_scores.append(val_iou)
 
@@ -131,14 +129,6 @@ def main():
     plt.title('Validation Loss over Epochs')
     plt.legend()
     plt.savefig('/home/valentina/validation_loss.png')
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(epochs, val_accuracies, label='Validation Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.title('Validation Accuracy over Epochs')
-    plt.legend()
-    plt.savefig('/home/valentina/validation_accuracy.png')
 
     plt.figure(figsize=(10, 5))
     plt.plot(epochs, val_dice_scores, label='Validation Dice Score')
