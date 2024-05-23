@@ -51,10 +51,10 @@ def get_loaders(
 
     return train_loader, val_loader
 
-def check_accuracy(loader, model, device="cuda"):
-    num_correct = 0
-    num_pixels = 0
+def check_accuracy(loader, model, loss_fn, device="cuda"):
     dice_score = 0
+    iou_score = 0
+    total_loss = 0
     model.eval()
 
     with torch.no_grad():
@@ -63,17 +63,27 @@ def check_accuracy(loader, model, device="cuda"):
             y = y.to(device).unsqueeze(1)
             preds = torch.sigmoid(model(x))
             preds = (preds > 0.5).float()
-            num_correct += (preds == y).sum()
-            num_pixels += torch.numel(preds)
-            dice_score += (2 * (preds * y).sum()) / (
-                (preds + y).sum() + 1e-8
+            
+            dice_score += (2 * (preds * y).sum().item()) / (
+                (preds + y).sum().item() + 1e-8
             )
-
-    print(
-        f"Got {num_correct}/{num_pixels} with acc {num_correct/num_pixels*100:.2f}"
-    )
-    print(f"Dice score: {dice_score/len(loader)}")
+            
+            # Calculate Intersection over Union (IoU)
+            intersection = (preds * y).sum().item()
+            union = (preds + y).sum().item() - intersection
+            iou_score += intersection / (union + 1e-8)
+            
+            # Calculate Loss
+            loss = loss_fn(preds, y)
+            total_loss += loss.item()
+            
+    avg_loss = total_loss / len(loader)
+    avg_dice = dice_score / len(loader)
+    avg_iou = iou_score / len(loader)
+    
     model.train()
+    
+    return avg_loss, accuracy, avg_dice, avg_iou
 
 def save_predictions_as_imgs(
     loader, model, folder="saved_images/", device="cuda"
