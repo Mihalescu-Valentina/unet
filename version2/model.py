@@ -1,13 +1,17 @@
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
-from metrics import MeanPixelAccuracy, MeanIoU, FrequencyIoU, LossMetric
+from metrics import LossMetric
 from dataset import MVDataset
 from torch.utils.data import DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
+from torchmetrics import DiceScore
+from torchmetrics.classification import BinaryJaccardIndex
 import torchvision
+import matplotlib.pyplot as plt
+
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(DoubleConv, self).__init__()
@@ -25,18 +29,18 @@ class DoubleConv(nn.Module):
 
 class UNET(nn.Module):
     def __init__(
-            self, in_channels=3, out_channels=1, features=[64, 128, 256, 512],config=None
+            self, in_channels=3, out_channels=1, features=[64, 128, 256, 512], config=None
     ):
         super(UNET, self).__init__()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.loss = LossMetric()
-        self.mIoU = MeanIoU()
-        self.fIoU = FrequencyIoU()
-        self.config=nn.ParameterDict(config)
+        self.dice_score = DiceScore()
+        self.iou = BinaryJaccardIndex()
+        self.config = nn.ParameterDict(config)
         self.to(self.config['device'])
         self.loss_fn = nn.BCEWithLogitsLoss()
+
         # Down part of UNET
         for feature in features:
             self.downs.append(DoubleConv(in_channels, feature))
@@ -53,10 +57,11 @@ class UNET(nn.Module):
 
         self.bottleneck = DoubleConv(features[-1], features[-1]*2)
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
-        self.optimizer = self.configure_optimizer(self.config['optimizer'],self.config['lr'])
-        # self.scaler = torch.cuda.amp.GradScaler()
-        self.metrics = {'train': {'loss': [], 'mIoU': [], 'fIoU': []},
-                        'val': {'loss': [], 'mIoU': [], 'fIoU': []}}
+        self.optimizer = self.configure_optimizer(self.config['optimizer'], self.config['lr'])
+        self.scaler = torch.cuda.amp.GradScaler()
+
+        self.metrics = {'train': {'loss': [], 'dice_score': [], 'iou': []},
+                        'val': {'loss': [], 'dice_score': [], 'iou': []}}
         self.load_data()
 
     def forward(self, x):
@@ -72,36 +77,35 @@ class UNET(nn.Module):
 
         for idx in range(0, len(self.ups), 2):
             x = self.ups[idx](x)
-            skip_connection = skip_connections[idx//2]
+            skip_connection = skip_connections[idx // 2]
 
             if x.shape != skip_connection.shape:
                 x = TF.resize(x, size=skip_connection.shape[2:])
 
             concat_skip = torch.cat((skip_connection, x), dim=1)
-            x = self.ups[idx+1](concat_skip)
+            x = self.ups[idx + 1](concat_skip)
 
         return self.final_conv(x)
 
-    def save_checkpoint(self,state, filename):
+    def save_checkpoint(self, state, filename):
         print("=> Saving checkpoint")
-        print(type(filename))
         torch.save(state, filename)
 
-    def load_checkpoint(self,checkpoint):
+    def load_checkpoint(self, checkpoint):
         print("=> Loading checkpoint")
         self.load_state_dict(checkpoint["state_dict"])
 
     def get_loaders(self,
-        train_dir,
-        train_maskdir,
-        val_dir,
-        val_maskdir,
-        batch_size,
-        train_transform,
-        val_transform,
-        num_workers=4,
-        pin_memory=True,
-    ):
+                    train_dir,
+                    train_maskdir,
+                    val_dir,
+                    val_maskdir,
+                    batch_size,
+                    train_transform,
+                    val_transform,
+                    num_workers=4,
+                    pin_memory=True,
+                    ):
         train_ds = MVDataset(
             image_dir=train_dir,
             mask_dir=train_maskdir,
@@ -133,14 +137,14 @@ class UNET(nn.Module):
 
     def load_data(self):
         train_transform = A.Compose(
-        [
-            A.Resize(height=self.config['image_height'], width=self.config['image_width']),
-            A.Rotate(limit=35, p=1.0),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.1),
-            ToTensorV2(),
-        ],
-    )
+            [
+                A.Resize(height=self.config['image_height'], width=self.config['image_width']),
+                A.Rotate(limit=35, p=1.0),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.1),
+                ToTensorV2(),
+            ],
+        )
 
         val_transforms = A.Compose(
             [
@@ -158,7 +162,7 @@ class UNET(nn.Module):
             val_transforms,
             self.config['num_workers'],
             self.config['pin_memory'],
-    )
+        )
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -173,53 +177,108 @@ class UNET(nn.Module):
 
     def train_step(self):
         self.train()
-        loop = tqdm(self.train_loader)
+        loop = tqdm(self.train_loader, leave=False)
+        epoch_loss = 0
+        epoch_dice = 0
+        epoch_iou = 0
+
         for batch_idx, (data, targets) in enumerate(loop):
             data = data.to(device=self.config['device'])
             targets = targets.float().unsqueeze(1).to(device=self.config['device'])
-            self.optimizer.zero_grad()
+
             with torch.cuda.amp.autocast():
-                predictions = self.forward(data))
+                predictions = self.forward(data)
                 loss = self.loss_fn(predictions, targets)
-            # backward
-            # self.scaler.scale(loss).backward()
-            # self.scaler.step(self.optimizer)
-            loss.backward()
-            self.optimizer.step()
-            self.loss.update(loss.item())
-            self.mIoU.update(predictions, targets)
-            self.fIoU.update(predictions, targets)
-            # self.scaler.update()
-            # update tqdm loop
-            loop.set_postfix(loss=loss.item())
+            
+            self.optimizer.zero_grad()
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+
+            dice = self.dice_score(predictions, targets)
+            iou = self.iou(predictions, targets)
+
+            epoch_loss += loss.item()
+            epoch_dice += dice.item()
+            epoch_iou += iou.item()
+
+            loop.set_postfix(loss=loss.item(), dice=dice.item(), iou=iou.item())
+
+        avg_loss = epoch_loss / len(self.train_loader)
+        avg_dice = epoch_dice / len(self.train_loader)
+        avg_iou = epoch_iou / len(self.train_loader)
+
+        self.metrics['train']['loss'].append(avg_loss)
+        self.metrics['train']['dice_score'].append(avg_dice)
+        self.metrics['train']['iou'].append(avg_iou)
 
     def validate_step(self):
         self.eval()
-        for idx, (x, y) in enumerate(self.val_loader):
-            x = x.to(device=self.config['device'])
-            y = y.float().unsqueeze(1).to(device=self.config['device'])
-            with torch.no_grad():
+        epoch_loss = 0
+        epoch_dice = 0
+        epoch_iou = 0
+
+        with torch.no_grad():
+            for idx, (x, y) in enumerate(self.val_loader):
+                x = x.to(device=self.config['device'])
+                y = y.float().unsqueeze(1).to(device=self.config['device'])
+                
                 preds = torch.sigmoid(self.forward(x))
                 preds = (preds > 0.5).float()
                 loss = self.loss_fn(preds, y)
-                self.loss.update(loss.item())
-                self.mIoU.update(preds, y)
-                self.fIoU.update(preds, y)
+                
+                dice = self.dice_score(preds, y)
+                iou = self.iou(preds, y)
+                
+                epoch_loss += loss.item()
+                epoch_dice += dice.item()
+                epoch_iou += iou.item()
+                
                 if idx % 10 == 0:  # Save every 10th batch
-                        torchvision.utils.save_image(preds, f"/home/valentina/pred_images/pred_{idx}.png")
-                        torchvision.utils.save_image(y, f"/home/valentina/saved_images/image_{idx}.png")
+                    torchvision.utils.save_image(preds, f"/home/valentina/pred_images/pred_{idx}.png")
+                    torchvision.utils.save_image(y, f"/home/valentina/saved_images/image_{idx}.png")
 
-    def log_metrics(self, phase='train'):
-        loss, mIoU, fIoU = self.loss.compute(), self.mIoU.compute(), self.fIoU.compute()
-        print(f"{phase} - Loss: {loss:.4f}, mIoU: {mIoU:.4f}, fIoU: {fIoU:.4f}")
-        self.metrics[phase]['loss'].append(loss)
-        self.metrics[phase]['mIoU'].append(mIoU)
-        self.metrics[phase]['fIoU'].append(fIoU)
-        #plot metrics
-        self.loss.reset()
-        self.mIoU.reset()
-        self.fIoU.reset()
+        avg_loss = epoch_loss / len(self.val_loader)
+        avg_dice = epoch_dice / len(self.val_loader)
+        avg_iou = epoch_iou / len(self.val_loader)
 
+        self.metrics['val']['loss'].append(avg_loss)
+        self.metrics['val']['dice_score'].append(avg_dice)
+        self.metrics['val']['iou'].append(avg_iou)
+
+        self.log_metrics('val', avg_loss, avg_dice, avg_iou)
+
+    def log_metrics(self, phase, loss, dice, iou):
+        print(f"{phase} - Loss: {loss:.4f}, Dice Score: {dice:.4f}, IOU: {iou:.4f}")
+
+    def plot_metrics(self):
+        epochs = range(1, len(self.metrics['val']['loss']) + 1)
+
+        plt.figure(figsize=(12, 6))
+
+        plt.subplot(1, 3, 1)
+        plt.plot(epochs, self.metrics['val']['loss'], 'b', label='Validation Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.title('Validation Loss')
+        plt.legend()
+
+        plt.subplot(1, 3, 2)
+        plt.plot(epochs, self.metrics['val']['dice_score'], 'b', label='Validation Dice Score')
+        plt.xlabel('Epochs')
+        plt.ylabel('Dice Score')
+        plt.title('Validation Dice Score')
+        plt.legend()
+
+        plt.subplot(1, 3, 3)
+        plt.plot(epochs, self.metrics['val']['iou'], 'b', label='Validation IOU')
+        plt.xlabel('Epochs')
+        plt.ylabel('IOU')
+        plt.title('Validation IOU')
+        plt.legend()
+
+        plt.tight_layout()
+        plt.show()
 
     def fit(self):
         print(self.parameters())
@@ -227,37 +286,37 @@ class UNET(nn.Module):
         print(self.parameters())
         if self.config['load_model']:
             self.load_checkpoint(torch.load("/home/valentina/my_checkpoint.pth.tar"))
-        for _ in range(self.config['num_epochs']):
+        for epoch in range(self.config['num_epochs']):
             self.train_step()
             checkpoint = {
-            "state_dict": self.state_dict(),
-            "optimizer":self.optimizer.state_dict(),
+                "state_dict": self.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
             }
-            self.log_metrics('train')
-            self.save_checkpoint(checkpoint,"/home/valentina/my_checkpoint.pth.tar")
+            self.save_checkpoint(checkpoint, "/home/valentina/my_checkpoint.pth.tar")
             self.validate_step()
-            self.log_metrics('val')
+
+        self.plot_metrics()
 
 def main():
     config = {
-        "lr":1e-4,
-        "device":"cuda" if torch.cuda.is_available() else "cpu",
-        "batch_size":16,
-        "num_epochs":32,
-        "num_workers":2,
-        "image_height":572,
-        "image_width":572,
-        "pin_memory":True,
-        "load_model":False,
-        "train_img_dir":"/home/valentina/training_images",
-        "train_mask_dir":"/home/valentina/training_binary_masks",
-        "val_img_dir":"/home/valentina/validation_images",
-        "val_mask_dir":"/home/valentina/validation_binary_masks",
-        "optimizer":'Adam'
+        "lr": 1e-4,
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "batch_size": 16,
+        "num_epochs": 32,
+        "num_workers": 2,
+        "image_height": 572,
+        "image_width": 572,
+        "pin_memory": True,
+        "load_model": False,
+        "train_img_dir": "/home/valentina/training_images",
+        "train_mask_dir": "/home/valentina/training_binary_masks",
+        "val_img_dir": "/home/valentina/validation_images",
+        "val_mask_dir": "/home/valentina/validation_binary_masks",
+        "optimizer": 'Adam'
     }
 
-
-    unet = UNET(in_channels=3,out_channels=1,config=config)
+    unet = UNET(in_channels=3, out_channels=1, config=config)
     unet.fit()
+
 if __name__ == "__main__":
     main()
